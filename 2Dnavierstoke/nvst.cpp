@@ -1,0 +1,275 @@
+#include <iostream>
+#include <cmath>
+#include <fstream>
+#include <string>
+#include <stdlib.h>
+#include <unistd.h>
+using namespace std;
+double **MATRIX(int x,int y){
+  double **m;
+  m = (double **) malloc ((x)* sizeof(double));
+  for(int i = 0; i < y; i++){
+    m[i] = (double *) malloc ((y) * sizeof(double));
+  }
+  return m;
+}
+void initialize(double **U, double **V, double **F, double **G, double **P, double **RHS, double **PHI, double **NEW_PHI, int imax, int jmax){
+  for(int i = 0; i<= imax-1; i++){
+    for(int j = 0; j <= jmax-1; j++){
+      P[i][j] = 0; RHS[i][j]=0;
+      if( i == imax-1 && j == jmax-1){cout << "dim P and RHS is " << i+1 << " " << j+1 << endl;}
+    }
+  }
+  for(int i = 0; i<= imax-2; i++){
+    for(int j = 0; j <= jmax-1; j++){
+      U[i][j] = 0; F[i][j]=0;
+      if( i == imax-2 && j == jmax-1){cout << "dim U and F is " << i+1 << " " << j+1 << endl;}
+    }
+  }
+  for(int i = 0; i<= imax-1; i++){
+    for(int j = 0; j <= jmax-2; j++){
+      V[i][j] = 0; G[i][j]=0;
+      if( i == imax-1 && j == jmax-2){cout << "dim V and G is " << i+1 << " " << j+1 << endl;}
+    }
+  }
+  for(int i = 0; i<= imax-2; i++){
+    for(int j = 0; j <= jmax-2; j++){
+      PHI[i][j] = 0; NEW_PHI[i][j]=0;
+      if( i == imax-2 && j == jmax-2){cout << "dim PHI_NEW and PHI is " << i+1 << " " << j+1 << endl;}
+    }
+  }
+}
+void setbcon(double **U, double **V, double **F, double **G, double **P, double **RHS, double **PHI, double **PHI_NEW, int imax, int jmax){
+  //set phi;
+  for(int j = 1; j <=((jmax-3)/2); j++){PHI[0][j] = 1;}
+  //set inflow velocity;
+  for(int j = 1; j <= jmax-2; j++){U[0][j] = 1;}
+  cout << "set bcomn completed " << endl;
+}
+void comp_FG(double **U, double **V, double **F, double **G, int imax, int jmax,  double Re, double dx, double dy, double dt){
+  double d2udx2, d2udy2, d2vdx2, d2vdy2;
+  double du2dx, duvdx, dvudy, dv2dy;
+  double du2dxp1, duvdxp1, dvudyp1, dv2dyp1;
+  double du2dxp2, duvdxp2, dvudyp2, dv2dyp2;
+  //Evaluate F
+  int m = 0;
+  double gx = 0; double gy = 0;
+  for(int i = 1; i <= imax-3; i++){
+    for(int j = 1; j <= jmax-2; j++){
+      d2udx2 = (U[i+1][j]-2*U[i][j]+U[i-1][j])/(dx*dx);
+      d2udy2 = (U[i][j+1]-2*U[i][j]+U[i][j-1])/(dy*dy);
+      du2dxp1 = 1/(4*dx)*((U[i+1][j]+U[i][j])*(U[i+1][j]+U[i][j])   -   (U[i-1][j]+U[i][j])*(U[i-1][j]+U[i][j]));
+      dvudyp1 = 1/(4*dy)*((V[i+1][i]+V[i][j])*(U[i][j+1]+U[i][j])   -   (V[i][j-1]+V[i+1][j-1])*(U[i][j-1]+U[i][j]));
+      du2dxp2 = 1/(4*dx)*(abs(U[i+1][j]+U[i][j])*(U[i][j]-U[i+1][j])-abs(U[i-1][j]+U[i][j])*(-U[i][j]+U[i-1][j]));
+      dvudyp2 = 1/(4*dy)*(abs(V[i+1][i]+V[i][j])*(U[i][j]-U[i][j+1])-abs(V[i][j-1]+V[i+1][j-1])*(-U[i][j]+U[i][j-1]));
+      dvudy = dvudyp1+dvudyp2;
+      du2dx = du2dxp1+du2dxp2;
+      F[i][j] = U[i][j]+dt*((1/Re)*(d2udx2+d2udy2)-(du2dx+dvudy)+gx);
+      m += 1;
+    }
+  }
+  cout <<"eval F complete"<<" "<< m << endl;
+  //Evaluate G
+  int n = 0;
+  for(int i = 1; i <= imax-2; i++){
+    for(int j = 1; j <= jmax-3; j++){
+      n+=1;
+      d2vdx2 = (V[i+1][j]-2*V[i][j]+V[i-1][j])/(dx*dx);
+      //cout << "part 1 " << n << endl;
+      d2vdy2 = (V[i][j+1]-2*V[i][j]+V[i][j-1])/(dy*dy);
+      //cout << "part 2 " << n << endl;
+      duvdxp1 = 1/(4*dx)*((U[i][j+1]+U[i][j])*(V[i+1][j]+V[i][j])-(U[i-1][j]+U[i-1][j+1])*(V[i-1][j]+V[i][j]));
+      //cout << "part 3 " << n << endl;
+      dv2dyp1 = 1/(4*dy)*((V[i][j+1]+V[i][j])*(V[i][j+1]+V[i][j])-(V[i][j-1]+V[i][j])*(V[i][j-1]+V[i][j]));
+      //cout << "part 4 " << n << endl;
+      duvdxp2 = 1/(4*dx)*(abs(U[i][j+1]+U[i][j])*(V[i][j]-V[i+1][j])-abs(U[i-1][j]+U[i-1][j+1])*(-V[i][j]+V[i-1][j]));
+      //cout << "part 5 " << n << endl;
+      dv2dyp2 = 1/(4*dy)*(abs(V[i][j+1]+V[i][j])*(V[i][j]-V[i][j+1])-abs(V[i][j-1]+V[i][j])*(-V[i][j]+V[i][j-1]));
+      //cout << "part 6 " << n << endl;
+      duvdx = duvdxp1+duvdxp2;
+      dv2dy = dv2dyp1+dv2dyp2;
+      G[i][j] = V[i][j]+dt*((1/Re)*(d2vdx2+d2vdy2)-(duvdx+dv2dy)+gy);
+      //cout << n << endl;
+    }
+  }
+  cout <<"eval G complete"<<endl;
+  //NEWMANN BOUNDARY CONDITION//
+  for(int j = 1; j <= jmax-2; j++){
+    F[0][j] = 1;
+    F[imax-2][j] = F[imax-3][j];
+  }
+  for(int j = 1; j <= jmax-3; j++){
+    G[imax-1][j] = G[imax-2][j];
+  }
+  cout<< "compFG complete"<< endl;
+}
+void comp_RHS(double **F, double **G, double **RHS, int imax, int jmax, double dx, double dy, double dt){
+  for(int i = 1; i <= imax-1; i++){
+    for(int j = 1; j <= jmax-1; j++){
+      RHS[i][j] = (1/dt)*((F[i][j]-F[i-1][j])/(dx)+(G[i][j]-G[i][j-1])/(dy));
+    }
+  }
+  cout << "comp RHS completed" << endl;
+}
+void poisson(double **P, double **RHS, int imax, int jmax, double dx, double dy, double dt){  
+  while(true){
+    //Still not complete yet lol
+    int N = 0;
+    double Pstar;
+    int it = 0;
+    for(int i = 1; i <= imax-2; i++){
+      for(int j = 1; j <= jmax-2; j++){
+        double p = P[i][j] ;
+	P[i][j] = ((dx*dx*dy*dy)/(2*(dx*dx+dy*dy)))*((1/(dx*dx))*(P[i+1][j]+P[i-1][j])+(1/(dy*dy))*(P[i][j+1]+P[i][j-1]))-RHS[i][j];
+	if(abs(P[i][j]-p) < 10e-50){N+=1;}
+        }
+    }
+    it += 1;
+    if(N == (jmax-2)*(imax-2)){break;}
+  }
+  for(int j = 1; j <= jmax-1; j++){
+    P[0][j]=  P[1][j];// P[imax-1][j] = P[imax-2][j];
+  }
+  for(int i = 1; i <= imax-1; i++){
+    P[i][0] = P[i][1]; P[i][jmax-1] = P[i][jmax-2];
+  }
+}
+void simulation_uv(double **F, double **G, double **P, double **U, double **V, double Re, int imax, int jmax, double dx, double dy, double dt){
+  for(int i = 1; i <= imax-3; i++){
+    for(int j = 1; j <= jmax-2; j++){
+      U[i][j] = F[i][j]-(dt*(P[i+1][j]-P[i][j]))/dx;
+    }
+  }
+  for(int i = 1; i <= imax-2; i++){
+    for(int j = 1; j <= jmax-3; j++){
+      V[i][j] = G[i][j]-(dt*(P[i][j+1]-P[i][j]))/dy;
+    }
+  }
+  for(int j = 1; j <= jmax-2; j++){
+    U[0][j] = 1.0;
+    U[imax-2][j] = U[imax-3][j];
+  }
+  for(int j  =1; j <= jmax-3; j++){
+    V[imax-1][j]=V[imax-2][j];
+  }
+}
+void simulation_phi(double **U, double **V, double **P, double **PHI, double **NEW_PHI, double Re, int imax, int jmax, double dx, double dy, double dt){
+  double LHS;
+  double RHS;
+  for(int i = 1; i<= imax-3; i++){
+    for(int j =1; j <= jmax-3; j++){
+      LHS = (U[i][j]/(2*dx))*(PHI[i+1][j]-PHI[i-1][j])+(V[i][j]/(2*dy))*(PHI[i][j+1]-PHI[i][j-1]);
+      RHS = (1/Re)*(PHI[i+1][j]-2*PHI[i][j]+P[i-1][j])*(1/(2*dx))+(1/Re)*(PHI[i][j+1]-2*PHI[i][j]+PHI[i][j-1])*(1/(2*dy));
+      NEW_PHI[i][j] = (RHS-LHS)*dt+PHI[i][j];
+    }
+  }
+  for(int j = 1; j <= (jmax-2)/2; j++){
+    NEW_PHI[0][j] = 1;
+  }
+  for(int j = 1; j <= jmax-3; j++){
+    NEW_PHI[imax-2][j] = NEW_PHI[imax-3][j];
+  }
+}
+void update_phi(double **PHI, double **NEW_PHI, int imax, int jmax){
+  for(int i =0 ; i <= imax-2; i++){
+    for(int j = 0; j <= jmax-2; j++){
+      PHI[i][j] = NEW_PHI[i][j];
+    }
+  }
+}
+void paraview(string filename, double **U, double **V, double **P, double **PHI, int imax, int jmax, double dx, double dy){
+  ofstream myfile;
+  myfile.open(filename);
+  myfile << "# vtk DataFile Version 2.0\n";
+  myfile << "FlowField\n";
+  myfile << "ASCII\n";
+  myfile << "DATASET STRUCTURED_GRID\n";
+  myfile << "DIMENSIONS " << imax-1 << " " <<  1 << " " << jmax-1 << "\n";
+  myfile << "POINTS " << (imax-1)*1*(jmax-1) << " float\n";
+  for(int j = 0; j <= jmax-2; j++){
+    for(int i = 0; i <= imax-2; i++){
+      myfile << dx*i << " " << dy*j << " 0\n"; 
+    }
+  }
+  //DATA
+  myfile << "\n";
+  myfile << "POINT_DATA" << " " << (imax-1)*1*(jmax-1) << "\n";
+  myfile << "\n";
+  myfile << "SCALARS U float 1\n";
+  myfile << "LOOKUP_TABLE default\n";
+  for(int j = 0; j <= jmax-2; j++){
+    for(int i = 0; i <= imax-2; i++){
+      myfile << U[i][j] << endl;
+    }
+  }
+  myfile << "\n";
+  myfile << "SCALARS V float 1\n";
+  myfile << "LOOKUP_TABLE default\n";
+  for(int j = 0; j <= jmax-2; j++){
+    for(int i = 0; i <= imax-2; i++){
+      myfile << V[i][j] << endl;
+    }
+  }
+  myfile << "\n";
+  myfile << "SCALARS P float 1\n";
+  myfile << "LOOKUP_TABLE default\n";
+  for(int j = 0; j <= jmax-2; j++){
+    for(int i = 0; i <= imax-2; i++){
+      myfile << P[i][j] << endl;
+    }
+  }
+  myfile << "\n";
+  myfile << "SCALARS PHI float 1\n";
+  myfile << "LOOKUP_TABLE default\n";
+  for(int j = 0; j <= jmax-2; j++){
+    for(int i = 0; i <= imax-2; i++){
+      myfile << PHI[i][j] << endl;
+    }
+  }
+  myfile.close();
+}
+int main(){
+  int nx = 20;
+  int ny = 10;
+  int imax = nx+2;
+  int jmax = ny+2;
+  double dx = 4;
+  double dy = 1;
+  double t = 0;
+  double dt = 0.001;
+  double Re = 300;
+  //MATRIX
+  double **U;U = (double **) malloc ((imax-1)*sizeof(double));
+  for(int i = 0; i <= imax-1; i++){U[i] = (double *) malloc ((jmax)*sizeof(double));}
+  double **V;V = (double **) malloc ((imax)*sizeof(double));
+  for(int i = 0; i <= imax; i++){V[i] = (double *) malloc ((jmax-1)*sizeof(double));}  
+  double **F;F = (double **) malloc ((imax-1)*sizeof(double));
+  for(int i = 0; i <= imax-1; i++){F[i] = (double *) malloc ((jmax)*sizeof(double));}
+  double **G;G = (double **) malloc ((imax)*sizeof(double));
+  for(int i = 0; i <= imax; i++){G[i] = (double *) malloc ((jmax-1)*sizeof(double));}
+  double **P;P =  (double **) malloc ((imax)*sizeof(double));
+  for(int i = 0; i <= imax; i++){P[i] = (double *) malloc ((jmax)*sizeof(double));}
+  double **RHS; RHS =  (double **) malloc ((imax)*sizeof(double));
+  for(int i = 0; i <= imax; i++){RHS[i] = (double *) malloc ((jmax)*sizeof(double));}
+  double **PHI; PHI = (double **) malloc ((imax-1)*sizeof(double));
+  for(int i = 0; i <= imax-1; i++){PHI[i] = (double *) malloc ((jmax-1)*sizeof(double));}
+  double **NEW_PHI; NEW_PHI = (double **) malloc ((imax-1)*sizeof(double));
+  for(int i = 0; i <= imax-1; i++){NEW_PHI[i] = (double *) malloc ((jmax-1)*sizeof(double));}
+  initialize(U, V, F, G, P, RHS, PHI, NEW_PHI, imax, jmax);
+  int period = 0;
+  while(true){
+    setbcon(U,V,F,G,P,RHS,PHI,NEW_PHI,imax,jmax);
+    comp_FG(U, V, F, G, imax, jmax, Re, dx, dy, dt);
+    comp_RHS(F,G,RHS,imax,jmax, dx, dy, dt);
+    poisson(P, RHS, imax, jmax, dx, dy, dt);
+    simulation_uv(F, G, P, U, V, Re, imax, jmax, dx, dy, dt);
+    simulation_phi(U, V, P, PHI, NEW_PHI, Re, imax, jmax, dx, dy, dt);
+    string filename;
+    period += 1;
+    filename = "DATA_"+to_string(period)+".vtk";
+    paraview(filename,U,V,P,PHI,imax,jmax,dx,dy);
+    t += dt;
+    if(t == 50){break;}
+  }
+  return 0;
+}

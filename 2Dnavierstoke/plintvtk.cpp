@@ -1,0 +1,45 @@
+#include <iostream>
+#include <string>
+#include <fstream>
+using namespace std;
+int main(){
+  int nx = 100; int ny = 10;
+  double dx = 1;
+  double dy = 1;
+  double U[nx+2][ny+2];
+  for(int i = 0; i <= nx+1; i++){
+    for(int j = 0; j <= ny+1; j++){
+      U[i][j] = 1;
+      if(i <= nx/4){
+	U[i][j] = 10;
+      }
+    }
+  }
+  ofstream myfile;
+  myfile.open("Test.vtk");
+  myfile << "# vtk DataFile Version 2.0\n";
+  myfile << "FlowField\n";
+  myfile << "ASCII\n";
+  //Grid;                                                                                                                                                                                                   
+  myfile << "DATASET STRUCTURED_GRID\n";
+  myfile << "DIMENSIONS" << " " << nx+2 << " " << 1 << " " << ny+2 << endl;
+  myfile << "POINTS " << (nx+2)*(ny+2) << " float\n";
+  for(int j = 0; j <= ny+1; j++){
+    for(int i = 0; i<= nx+1; i++){
+      myfile << dx*i << " " << dy*j << " " << 0 << endl;
+    }
+  }
+  myfile << "\n";
+  myfile << "POINT_DATA" << " " << (nx+2)*(ny+2) << endl;
+  myfile << "\n";
+  myfile << "SCALARS U float 1" << endl;
+  myfile << "LOOKUP_TABLE default\n";
+  for(int j = 0; j <= ny+1; j++){
+    for(int i = 0; i <= nx+1; i++){
+      myfile << U[i][j] << endl;
+    }
+  }
+  myfile.close();
+
+
+}

@@ -1,0 +1,467 @@
+#include <iostream>
+#include <cmath>
+#include <string>
+#include <fstream>
+#include <unistd.h>
+#include <stdlib.h>
+using namespace std;
+void MIN(double **Pointer,int nx,int ny){
+  
+  double a = Pointer[0][0];
+  for(int i =0; i <= nx+1; i++){
+    for(int j = 0; j <= ny+1; j++){
+      if( Pointer[i][j] <= a){a = Pointer[i][j];}
+    }
+  }
+  double b = Pointer[0][0];
+  for(int i =0; i <= nx+1; i++){
+    for(int j = 0; j <= ny+1; j++){
+      if( Pointer[i][j] >= b){b = Pointer[i][j];}
+    }
+  }
+  cout << "minimum  = " << a <<" maximum = " << b << endl;
+
+}
+void startuvpphi(double **U, double **V, double **F, double **G, double **P, double **RHS, double **PHI, double **NEW_PHI, double **NEW_P, int nx, int ny){
+  for(int i = 0; i <= nx+1; i++){
+    for(int j = 0; j <= ny+1; j++){
+      U[i][j] = 0; V[i][j] = 0; F[i][j] = 0; G[i][j] = 0; P[i][j] = 0; RHS[i][j] = 0; PHI[i][j] = 0; NEW_PHI[i][j] = 0, NEW_P[i][j] = 0;
+    }
+  }
+}
+
+void initialize(string filename, double **U, double **V, double **P, double **PHI, int nx, int ny){
+  //start the pressure = 1
+  for(int i = 0; i <= nx+1; i++){
+    for(int j = 0; j <= ny+1; j++){
+      P[i][j] = 1.0;
+    }
+  }
+  for(int j = 1; j <= ny; j++){
+    PHI[0][j] = 1.0;
+    U[0][j] = 1.0;
+    if(j == ny){
+      U[0][j] = 0;
+    }
+  }
+  for(int i = 1; i <= nx-1; i++){
+    PHI[i][0] = 0;
+    PHI[i][ny+1] = 0;
+    PHI[i][ny] = 0;
+  }
+}
+void setbcond(double **U, double **V, double **P, double **PHI, int nx, int ny){
+  //======AT the top and bottom of domain===========
+  for(int i = 1; i <= nx; i++){
+    //at j = ny+1 and j = 0
+    U[i][0] = -U[i][1];
+    U[i][ny+1] = -U[i][ny];
+    V[i][0] = 0;
+    V[i][ny+1] = 0; V[i][ny] = 0;
+    //Push my phi value
+    P[i][0] = P[i][1];
+    P[i][ny+1] = P[i][ny-1]; P[i][ny] = P[i][ny-1];
+    //May be correct
+    PHI[i][0] = 0;
+    PHI[i][ny+1] = 0; PHI[i][ny] = 0;
+    if(i == nx){
+      //at j = ny+1 and j = 0
+      U[i][0] = -U[i-1][1];
+      U[i][ny+1] = 0; U[i-1][ny] = -U[i-1][ny-1];
+      V[i][0] = 0;
+      V[i][ny+1] = V[i-1][ny+1];
+      //Push my phi value
+      P[i][0] = P[i-1][1];
+      P[i][ny+1] = P[i-1][ny-1]; P[i][ny] = P[i-1][ny-1];
+      //May be correct
+      PHI[i][0] = 0; PHI[i-1][1] = 0;
+      PHI[i][ny+1] = 0; PHI[i][ny] = 0;
+    }
+  }
+  for(int j = 1; j <= ny; j++){
+    U[0][j] = 1.0;
+    U[nx+1][j] = U[nx-1][j]; U[nx][j] = U[nx-1][j];
+    V[0][j]= 0;
+    V[nx+1][j] = V[nx][j];
+    P[0][j] = P[1][j];
+    P[nx+1][j] = P[nx-1][j]; P[nx][j] = P[nx-1][j];
+    PHI[0][j] = 1.0;
+    PHI[nx+1][j] = PHI[nx-1][j]; PHI[nx][j] = PHI[nx-1][j];
+    if(j == ny){
+      
+      U[0][j-1] = 1.0;
+      U[nx+1][j-1] = U[nx-1][j-1]; U[nx][j-1] = U[nx-1][j-1];
+      V[0][j-1]= 0;
+      V[nx+1][j-1] = V[nx][j-1];
+      P[0][j-1] = P[1][j-1];
+      P[nx+1][j-1] = P[nx-1][j-1]; P[nx][j-1] = P[nx-1][j-1];
+      PHI[0][j-1] = 0;
+      PHI[nx+1][j-1] = PHI[nx-1][j-1]; PHI[nx][j-1] = PHI[nx-1][j-1];
+    }
+    
+  }
+    //Temporary test
+}
+
+void comp_FG(double **U, double **V, double **F, double **G, double dt, double dx, double dy, int nx, int ny, double gx, double gy, double Re){
+  double d2udx2, d2udy2, d2vdx2, d2vdy2;
+  double du2dx, duvdx, dvudy, dv2dy;
+  double du2dxp1, duvdxp1, dvudyp1, dv2dyp1;
+  double du2dxp2, duvdxp2, dvudyp2, dv2dyp2;
+  for(int i = 1; i <= nx; i++){
+    for(int j = 1; j <= ny; j++){
+      d2udx2 = (U[i+1][j]-2*U[i][j]+U[i-1][j])/(dx*dx);
+      d2udy2 = (U[i][j+1]-2*U[i][j]+U[i][j-1])/(dy*dy);
+      d2vdx2 = (V[i+1][j]-2*V[i][j]+V[i-1][j])/(dx*dx);
+      d2vdy2 = (V[i][j+1]-2*V[i][j]+V[i][j-1])/(dy*dy);
+      
+      du2dxp1 = 1/(4*dx)*((U[i+1][j]+U[i][j])*(U[i+1][j]+U[i][j])-(U[i-1][j]+U[i][j])*(U[i-1][j]+U[i][j]));
+      duvdxp1 = 1/(4*dx)*((U[i][j+1]+U[i][j])*(V[i+1][j]+V[i][j])-(U[i-1][j]+U[i-1][j+1])*(V[i-1][j]+V[i][j]));
+      dvudyp1 = 1/(4*dy)*((V[i+1][i]+V[i][j])*(U[i][j+1]+U[i][j])-(V[i][j-1]+V[i+1][j-1])*(U[i][j-1]+U[i][j]));
+      dv2dyp1 = 1/(4*dy)*((V[i][j+1]+V[i][j])*(V[i][j+1]+V[i][j])-(V[i][j-1]+V[i][j])*(V[i][j-1]+V[i][j]));
+
+      du2dxp2 = 1/(4*dx)*(abs(U[i+1][j]+U[i][j])*(U[i][j]-U[i+1][j])-abs(U[i-1][j]+U[i][j])*(U[i][j]-U[i-1][j]));
+      duvdxp2 = 1/(4*dx)*(abs(U[i][j+1]+U[i][j])*(V[i][j]-V[i+1][j])-abs(U[i-1][j]+U[i-1][j+1])*(V[i][j]-V[i-1][j]));
+      dvudyp2 = 1/(4*dy)*(abs(V[i+1][i]+V[i][j])*(U[i][j]-U[i][j+1])-abs(V[i][j-1]+V[i+1][j-1])*(U[i][j]-U[i][j-1]));
+      dv2dyp2 = 1/(4*dy)*(abs(V[i][j+1]+V[i][j])*(V[i][j]-V[i][j+1])-abs(V[i][j-1]+V[i][j])*(V[i][j]-V[i][j-1]));
+
+      du2dx = du2dxp1+du2dxp2;
+      duvdx = duvdxp1+duvdxp2;
+      dvudy = dvudyp1+dvudyp2;
+      dv2dy = dv2dyp1+dv2dyp2;
+      F[i][j] = U[i][j]+dt*((1/Re)*(d2udx2+d2udy2)-(du2dx+dvudy)+gx);
+      G[i][j] = G[i][j]+dt*((1/Re)*(d2vdx2+d2vdy2)-(duvdx+dv2dy)+gy);
+      if(i == nx){F[i][j] = F[i-1][j];}
+      if(j == ny){G[i][j] = G[i][j-1];}
+      if(i == nx && j == ny){F[i][j] = F[i-1][j-1]; G[i][j] = G[i-1][j-1];}
+    }
+  }
+  
+  for(int i = 1; i <= nx;i++){
+    F[i][0] = U[i][0];//F[i][1];
+    G[i][0] = V[i][0];//G[i][1];
+    F[i][ny+1] = U[i][ny+1];//F[i][ny];
+    G[i][ny+1] = V[i][ny+1];//G[i][ny];
+    F[i][ny] = U[i][ny];
+  }
+  
+  for(int j = 1; j <= ny;j++){
+    F[0][j] = U[0][j];//F[1][j];
+    G[0][j] = V[0][j];//G[1][j];
+    F[nx+1][j] = U[nx+1][j];//F[nx][j];
+    G[nx+1][j] = V[nx+1][j];//G[nx][j];
+    G[nx][j] = V[nx][j];
+  }
+}
+
+void comp_RHS(double **F, double **G, double **RHS, int nx, int ny, double dx, double dy, double dt){
+  for(int i = 1; i <= nx; i++){
+    for(int j = 1; j <= ny; j++){
+      RHS[i][j] = (1/dt)*((F[i][j]-F[i-1][j])/(dx)+(G[i][j]-G[i][j-1])/(dy));
+      if(i == nx){RHS[i][j] = RHS[i-1][j];}
+      if(j == ny){RHS[i][j] = RHS[i][j-1];}
+      if(i == nx && j == ny){RHS[i][j] = RHS[i-1][j-1];}
+    }
+  }
+}
+void poisson(double **P, double **NEW_P, double **RHS, int nx, int ny, double dx, double dy, double omg, double res){
+  for(int i = 0; i <= nx+1; i++){
+    for(int j = 0; j <= ny+1; j++){
+      NEW_P[i][j] = P[i][j];
+    }
+  }
+  int it = 0;
+  //Gauss-Seidel method 
+  while(true){
+    int N = 0;
+    double Pstar;
+    for(int i = 1; i <= nx; i++){
+      for(int j = 1; j <= ny; j++){
+	double p = NEW_P[i][j] ;
+  	  NEW_P[i][j] = (1/4.0)*(NEW_P[i+1][j]+NEW_P[i-1][j]+NEW_P[i][j+1]+NEW_P[i][j-1])-(dx*dx)/(4.0)*RHS[i][j];
+	  if(i == nx){NEW_P[i][j] = NEW_P[i-1][j];}
+	  if(j == ny){NEW_P[i][j] = NEW_P[i][j-1];}
+	  if(i == nx && j == ny){NEW_P[i][j] = NEW_P[i-1][j-1];}
+	  if(abs(NEW_P[i][j]-p)/p <= 0.000001){N+=1;}
+	}
+    }
+    it += 1;
+    if(N == nx*ny){break;}
+  }
+    
+  for(int i=0; i<= nx+1; i++){
+    for(int j=0; j<= ny+1; j++){
+      P[i][j] = NEW_P[i][j];
+    }
+  }
+}
+void SOR(double **P, double **NEW_P, double **RHS, int nx, int ny, double dx, double dy, double omg, double res, int itmax){
+  for(int i = 0; i <= nx+1; i++){
+    for(int j = 0; j <= ny+1; j++){
+      NEW_P[i][j] = P[i][j];
+    }
+  }
+  int it = 0;
+  double omega = 1.7;
+  int ewi, eei, esj, enj;
+  //Gauss-Seidel method 
+  while(true){
+    int N = 0;
+    double Pstar;
+    for(int i = 1; i <= nx; i++){
+      for(int j = 1; j <= ny; j++){
+	if(i == 1){ewi = 0;}if(i != 1){ewi = 1;}
+	if(i == nx){eei = 0;}if(i != nx){eei = 1;}
+	if(j == 1){esj = 0;}if(j != 1){esj = 1;}
+	if(j == ny){enj = 0;}if(j != ny){enj = 1;}
+	double p = NEW_P[i][j];
+	double factor = omega/((ewi+eei)/(dx*dx)+(esj+enj)/(dy*dy));
+	NEW_P[i][j] = (1-omega)*NEW_P[i][j]+factor*((eei*NEW_P[i+1][j]+ewi*NEW_P[i-1][j])/(dx*dx)+(esj*NEW_P[i][j-1]+enj*NEW_P[i][j+1])/(dy*dy)-RHS[i][j]);
+	//NEW_P[i][j] = (1/4.0)*(NEW_P[i+1][j]+NEW_P[i-1][j]+NEW_P[i][j+1]+NEW_P[i][j-1])+(dx*dx)/(4.0)*RHS[i][j];
+	if(abs(NEW_P[i][j]-p)/NEW_P[i][j] <= 0.000001){N+=1;}
+	cout << N << " " << it <<endl;
+      }
+    }
+    it += 1;
+    if(N == nx*ny){break;}
+    if(it == itmax){break;}
+  }
+    
+  for(int i=0; i<= nx+1; i++){
+    for(int j=0; j<= ny+1; j++){
+      P[i][j] = NEW_P[i][j];
+    }
+  }
+}
+
+void adap_UV(double **U, double **V, double **F, double **G, double **P, int nx, int ny, double dt, double dx, double dy){
+  for(int i = 1; i <= nx; i++){
+    for(int j = 1; j <= ny; j++){
+      U[i][j] = F[i][j] - (dt/dx)*(P[i+1][j]-P[i][j]);
+      V[i][j] = G[i][j] - (dt/dy)*(P[i][j+1]-P[i][j]);
+      
+      if(i == nx){U[i][j] = U[i-1][j]; U[i+1][j] = U[i-1][j];}
+      if(j == ny){V[i][j] = V[i][j-1]; V[i][j+1] = V[i][j];}
+      if(i == nx && j == ny){U[i][j] = U[i-1][j-1];V[i][j] = V[i-1][j-1];}
+    }
+  }
+  
+}
+void simulation_phi(double **PHI, double **NEW_PHI, double **U, double **V, double dt, double dx, double dy, int nx, int ny, double Re){
+  double rhs1, rhs2, rhs;
+  for(int i = 1; i <= nx; i++){
+    for(int j = 1; j <= ny; j++){
+      rhs1 = (1/(Re*dx*dx))*(PHI[i+1][i]+PHI[i-1][i]+PHI[i][j+1]+PHI[i][j-1]-4*PHI[i][j]);
+      rhs2 = (1/(2*dx))*(U[i][j]*(PHI[i+1][j]-PHI[i-1][j])+V[i][j]*(PHI[i][j+1]+PHI[i][j-1]));
+      rhs = rhs1-rhs2;
+      NEW_PHI[i][j] = PHI[i][j]+dt*rhs;
+      	  if(i == nx){NEW_PHI[i][j] = NEW_PHI[i-1][j];}
+	  if(j == ny){NEW_PHI[i][j] = NEW_PHI[i][j-1];}
+	  if(i == nx && j == ny){NEW_PHI[i][j] = NEW_PHI[i-1][j-1];}
+    }
+  }
+}
+
+void update(double **PHI, double **NEW_PHI, int nx, int ny){
+  for(int j = 0; j <= ny+1; j++){
+    for(int i = 0; i <= nx+1; i++){
+      PHI[i][j] = NEW_PHI[i][j];
+    }
+  }
+}
+void paraview(string fileName, double **U, double **V, double **P, double **PHI, double dx, double dy, int nx, int ny){
+  ofstream myfile;
+  myfile.open(fileName);
+  myfile << "# vtk DataFile Version 2.0\n";
+  myfile << "FlowField\n";
+  myfile << "ASCII\n";
+  //Grid;
+  myfile << "DATASET STRUCTURED_GRID\n";
+  myfile << "DIMENSIONS" << " " << nx+2 << " " << 1 << " " << ny+2 << endl;
+  myfile << "POINTS " << (nx+2)*(ny+2) << " float\n";
+  for(int j = 0; j <= ny+1; j++){
+    for(int i = 0; i <= nx+1; i++){
+      myfile << dx*i << " " << dy*j << " " << 0 << endl;
+    }
+  }
+  myfile << "\n";
+  myfile << "POINT_DATA" << " " << (nx+2)*(ny+2) << endl;
+  myfile << "\n";
+  myfile << "SCALARS U float 1" << endl;
+  myfile << "LOOKUP_TABLE default\n";
+  for(int j = 0; j <= ny+1; j++){
+    for(int i = 0; i <= nx+1; i++){
+      myfile << U[i][j] << endl;
+    }
+  }
+  myfile << "\n";
+  myfile << "SCALARS V float 1" << endl;
+  myfile << "LOOKUP_TABLE default\n";
+  for(int j = 0; j <= ny+1; j++){
+    for(int i = 0; i <= nx+1; i++){
+      myfile << V[i][j] << endl;
+    }
+  }
+  myfile << "\n";
+  myfile << "SCALARS P float 1" << endl;
+  myfile << "LOOKUP_TABLE default\n";
+  for(int j = 0; j <= ny+1; j++){
+    for(int i = 0; i <= nx+1; i++){
+      myfile << P[i][j] << endl;
+    }
+  }  myfile << "\n";
+  myfile << "SCALARS PHI float 1" << endl;
+  myfile << "LOOKUP_TABLE default\n";
+  for(int j = 0; j <= ny+1; j++){
+    for(int i = 0; i <= nx+1; i++){
+      myfile << PHI[i][j] << endl;
+    }
+  }
+  myfile.close();
+}
+int main(){
+  int period = 0;
+  int NUMBER = 1;
+  // cout << "# Would you like to continue he simulation ? " << endl;
+  // cout << "Press 1 then enter if you want to start the new simulation" << endl;
+  // cout << "Press 2 then enter if you want to start the new simulation" << endl;
+  // cout << "Compute your number: ";
+  // cin >> NUMBER;
+  // if(NUMBER != 1 && NUMBER != 2){cerr << "Illegal value of the number!\n";exit(1);}
+  // int resolution;
+  // double t;
+  // double Re;
+  // double dt;
+  // if(NUMBER == 1){
+  //   t = 0;
+  //   cout << "# Enter the resolution R of the grid as the integer between 1-20 \n";
+  //   cout << "# The domain of this simulation is x:y:z = 20:10:15 respectively \n";
+  //   cout << "# The Number of grid in x = 20*R, y = 10*R and z = 15*R. The Total number of grid is 3000*N*N*N grids in the simulation \n"; 
+  //   cout << "# For example, if you enter 20 in the input the total number of grids is 3000*8000 = 24000000 grids respectively \n";
+  //   cout << "Enter the resolution R (R is an integer between 1-20";
+  //   cin >> resolution;
+  //   if(resolution <= 0 && resolution >= 21){cerr << "Rewrite the new resolution\n"; exit(1);}
+  //   cout << "\n";
+  //   cout << "The resoulution is " << resolution << endl;
+  //   cout << "The total number of grid is = " << 3000*resolution*resolution*resolution << endl;
+  //   cout << "#Enter the Reynold number R (1000 - 10000)";
+  //   cin >> Re;
+  //   cout << "\n";
+  //   if(Re <= 1000 && Re >= 10000){cerr << "Inappropiate value of Reynold number Re\n"; exit(1);}
+  //   cout << "\n";
+  //   cout << "#Enter the Reynold number dt (0.00001 - 0.2)";
+  //   cin>> dt;
+  //   cout << "\n";
+  //   if(dt <= 0.00001 && Re >= 0.2){cerr << "Inappropiate value of Reynold number Re\n"; exit(1);}
+  // }
+  // if(NUMBER == 2){
+  //   ifstream readfile1;
+  //   string word1, word2, word3, word4;
+  //   int period;
+  //   readfile1.open("backup.dat");
+  //   readfile1 >> word1 >> t >> word2 >> resolution >> word3 >> Re >> word4 >> dt >> period;
+  // }
+  cout << abs(-4) << endl;
+  double t = 0;
+  double Re = 300;
+  double dt = 0.1;
+  double nx = 700;
+  double ny = 20;
+  double **U;
+  U = (double **) malloc ((nx+2)*sizeof(double));
+  for(int i = 0; i < nx+2; i++){
+    U[i] = (double *) malloc ((ny+2)*sizeof(double));
+  }
+  double **V;
+  V = (double **) malloc ((nx+2)*sizeof(double));
+  for(int i = 0; i < nx+2; i++){
+    V[i] = (double *) malloc ((ny+2)*sizeof(double));
+  }
+  double **F;
+  F = (double **) malloc ((nx+2)*sizeof(double));
+  for(int i = 0; i < nx+2; i++){
+    F[i] = (double *) malloc ((ny+2)*sizeof(double));
+  }
+  double **G;
+  G = (double **) malloc ((nx+2)*sizeof(double));
+  for(int i = 0; i < nx+2; i++){
+    G[i] = (double *) malloc ((ny+2)*sizeof(double));
+  }
+  double **P;
+  P = (double **) malloc ((nx+2)*sizeof(double));
+  for(int i = 0; i < nx+2; i++){
+    P[i] = (double *) malloc ((ny+2)*sizeof(double));
+  }
+  double **NEW_P;
+  NEW_P = (double **) malloc ((nx+2)*sizeof(double));
+  for(int i = 0; i < nx+2; i++){
+    NEW_P[i] = (double *) malloc ((ny+2)*sizeof(double));
+  }
+  double **PHI;
+  PHI = (double **) malloc ((nx+2)*sizeof(double));
+  for(int i = 0; i < nx+2; i++){
+    PHI[i] = (double *) malloc ((ny+2)*sizeof(double));
+  }
+  double **RHS;
+  RHS= (double **) malloc ((nx+2)*sizeof(double));
+  for(int i = 0; i < nx+2; i++){
+    RHS[i] = (double *) malloc ((ny+2)*sizeof(double));
+  }
+  double **NEW_PHI;
+  NEW_PHI = (double **) malloc ((nx+2)*sizeof(double));
+  for(int i = 0; i < nx+2; i++){
+    NEW_PHI[i] = (double *) malloc ((ny+2)*sizeof(double));
+  }
+  startuvpphi(U, V, F, G, P, RHS, PHI, NEW_PHI, NEW_P, nx, ny);
+  double gx = 0;
+  double gy = 0;
+  double gz = 0;
+  double gamma = 1.0;
+  double itmax = 1000;
+  double omg = 1.7;
+  double res = 1;
+  double dx, dy, dz;
+  dx = 1 ; dy = 1 ; dz = 1;
+  NUMBER = 1;
+  //==========SELECT THE FILE FOR SIMULATION=================//
+  if(NUMBER == 1){
+    int period = 0;
+    initialize("DATA_0.vtk",U,V,P,PHI,nx,ny);
+    paraview("DATA_0.vtk",U,V,P,PHI,dx,dy,nx,ny);
+  }
+  int PERIOD = 0;
+  while (t < 50){
+    setbcond(U,V,P,PHI,nx,ny);
+    comp_FG(U,V,F,G,dt,dx,dy,nx,ny,gx,gy, Re);
+    
+    MIN(F, nx, ny);
+    MIN(G, nx, ny);
+    //comp_RHS(double **F, double **G, double **RHS, int nx, int ny, double dx, double dy, double dt){
+    comp_RHS(F,G,RHS,nx,ny,dx,dy,dt);
+    MIN(RHS, nx, ny);
+    poisson(P,NEW_P,RHS,nx,ny,dx,dy,omg,res);
+    MIN(P, nx, ny);
+    //SOR(P,NEW_P,RHS,nx,ny,dx,dy,omg,res,itmax);
+    //adap_UV(double **U, double **V, double **F, double **G, double **P, int nx, int ny, double dt, double dx, double dy){
+    adap_UV(U,V,F,G,P,nx,ny,dt,dx,dy);
+    //simulation_phi(double **PHI, double **NEW_PHI, double **U, double **V, double dt, double dx, double dy, int nx, int ny, double Re)
+    simulation_phi(PHI,NEW_PHI,U,V, dt, dx, dy, nx, ny, Re);
+    update(PHI,NEW_PHI,nx,ny);
+    //Write new paraview file
+    string fileName;
+    period +=1;
+    fileName = "DATA_"+to_string(period)+".vtk";
+    paraview(fileName, U, V, P, PHI, dx,dy,nx,ny);
+    PERIOD += 1;
+    cout << "The data number " << period << " is saved"<< endl;
+    // if( PERIOD == 20 ){
+    //   save_restartfile(U, V, W,  P, PHI, t, Re, dt, resolution, nx, ny, nz, period);
+    //   cout << "You have already save the restartfile" << endl;
+    //   PERIOD = 0;
+    // }
+	t += dt;
+    if( t == 50){cout << "Congratulation!!! You finished you final project absolutely!!" << endl; break;}
+  }
+  return 0;  
+}
+
